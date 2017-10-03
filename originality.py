@@ -5,7 +5,7 @@ import functools
 from threading import Lock
 
 # Third Party
-from scipy.stats import ks_2samp
+from scipy.stats import ks_2samp, entropy
 from scipy.stats.stats import pearsonr
 import numpy as np
 import pandas as pd
@@ -72,14 +72,9 @@ def original(submission1, submission2, threshold=0.05):
     score = originality_score(submission1, submission2)
     return score > threshold
 
-# this function is taken from scipy (ks_2samp) and modified and so falls
-# under their BSD license
 def originality_score(data1, data2):
     """
-    Computes the Kolmogorov-Smirnov statistic on 2 samples.
-
-    This is a two-sided test for the null hypothesis that 2 independent samples
-    are drawn from the same continuous distribution.
+    Computes the entropy between the probability distributions
 
     Warning: data1 is assumed sorted in ascending order.
 
@@ -94,28 +89,21 @@ def originality_score(data1, data2):
     -------
     statistic : float
         KS statistic
+
+    Raises:
+    -------
+    ValueError when data1 and data2 are not of equal length
     """
 
     # data1 is assumed sorted in ascending order
     data2 = np.sort(data2)
+
     n1 = data1.shape[0]
     n2 = data2.shape[0]
     if n1 != n2:
         raise ValueError("`data1` and `data2` must have the same length")
 
-    # the following commented out line is slower than the two after it
-    # cdf1 = np.searchsorted(data1, data_all, side='right') / (1.0*n1)
-    cdf1 = np.searchsorted(data1, data2, side='right')
-    cdf1 = np.concatenate((np.arange(n1) + 1, cdf1)) / (1.0*n1)
-
-    # the following commented out line is slower than the two after it
-    # cdf2 = np.searchsorted(data2, data_all, side='right') / (1.0*n2)
-    cdf2 = np.searchsorted(data2, data1, side='right')
-    cdf2 = np.concatenate((cdf2, np.arange(n1) + 1)) / (1.0*n2)
-
-    d = np.max(np.absolute(cdf1 - cdf2))
-
-    return d
+    return entropy(data1, data2)
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
@@ -217,8 +205,8 @@ def submission_originality(submission_data, db_manager, filemanager):
         logging.getLogger().info("Couldn't find {} {}".format(submission_data['user'], submission_data['submission_id']))
         return
 
-    is_exact_dupe_thresh = 0.005
-    is_similar_thresh = 0.03
+    is_exact_dupe_thresh = 1.0e-4
+    is_similar_thresh = 1.0e-3
     max_similar_models = 1
 
     is_original = is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models)
