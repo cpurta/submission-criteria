@@ -1,7 +1,9 @@
 # System
 """Originality Checking."""
 import logging
+import math
 import functools
+import os
 from threading import Lock
 
 # Third Party
@@ -51,8 +53,7 @@ def get_submission(db_manager, filemanager, submission_id):
 
     df = pd.read_csv(local_file)
     df.sort_values("id", inplace=True)
-    df = df["probability"]
-    return df.as_matrix()
+    return df
 
 def original(submission1, submission2, threshold=0.05):
     """Determines if two submissions are original
@@ -74,7 +75,7 @@ def original(submission1, submission2, threshold=0.05):
 
 def originality_score(data1, data2):
     """
-    Computes the entropy between the probability distributions
+    Computes the normalized residual error between a user submission data and another submission
 
     Warning: data1 is assumed sorted in ascending order.
 
@@ -88,7 +89,7 @@ def originality_score(data1, data2):
     Returns
     -------
     statistic : float
-        KS statistic
+        normalized residual error
 
     Raises:
     -------
@@ -103,7 +104,7 @@ def originality_score(data1, data2):
     if n1 != n2:
         raise ValueError("`data1` and `data2` must have the same length")
 
-    return entropy(data1, data2)
+    return (1.0 / n1) * (np.sum(np.absolute(data1 - data2)) / np.sum(max(np.sum(data1), np.sum(data2)))) * 10**math.floor(math.log10(n1))
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
@@ -113,8 +114,8 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
     submission_data : dictionary
         Submission metadata containing the submission_id and the user associated to the submission
 
-    submission : ndarray
-        Submission data that contains the probabilities for the competition data
+    submission : DataFrame
+        Submission data that contains the users submission
 
     db_manager : DatabaseManager
         MongoDB data access object that has read and write functions to NoSQL DB
@@ -136,42 +137,55 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
     bool
         Whether the submission data is considered to be original or not
     """
+    # Get the tournament data
+    extract_dir = filemanager.download_dataset(competition_id)
+    tournament_data = pd.read_csv(os.path.join(extract_dir, "numerai_tournament_data.csv"))
+
+    # split the tournament_data into the various types ('validation','test','live')
+    tournament_data_types = [tournament_data[tournament_data.data_type == 'validation'],
+    tournament_data[tournament_data.data_type == 'test'],
+    tournament_data[tournament_data.data_type == 'live']]
+
     num_similar_models = 0
-    is_original = True
     similar_models = []
-    is_not_a_constant = np.std(submission) > 0
 
     date_created = db_manager.get_date_created(submission_data['submission_id'])
 
-    sorted_submission = np.sort(submission)
     for user_sub in db_manager.get_everyone_elses_recent_submssions(submission_data['competition_id'], submission_data['user'], date_created):
         with lock:
             other_submission = get_submission(db_manager, filemanager, user_sub["submission_id"])
         if other_submission is None:
             continue
-        score = originality_score(sorted_submission, other_submission)
+        for data_type in tournament_data_types:
+            submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
+            other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
 
-        if is_not_a_constant and np.std(other_submission) > 0 :
-            correlation = pearsonr(submission, other_submission)[0]
+            sorted_submission = np.sort(submission_type)
+            sorted_other_submission = np.sort(other_submission_type)
 
-            if np.abs(correlation) > 0.95:
-                logging.getLogger().info("Found a highly correlated submission {} with score {}".format(user_sub["submission_id"], correlation))
-                is_original = False
-                break
+            score = originality_score(sorted_submission, sorted_other_submission)
 
-        if score < is_exact_dupe_thresh:
-            logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
-            is_original = False
-            break
-        if score <= is_similar_thresh:
-            num_similar_models += 1
-            similar_models.append(user_sub["submission_id"])
-            if num_similar_models >= max_similar_models:
-                logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
-                is_original = False
-                break
+            is_not_a_constant = np.std(submission_type) > 0
 
-    return is_original
+            if is_not_a_constant and np.std(other_submission_type) > 0 :
+                correlation = pearsonr(submission_type, other_submission_type)[0]
+
+                if np.abs(correlation) > 0.95:
+                    logging.getLogger().info("Found a highly correlated submission {} with score {}".format(user_sub["submission_id"], correlation))
+                    return False
+
+            if score < is_exact_dupe_thresh:
+                logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
+                return False
+
+            if score <= is_similar_thresh:
+                num_similar_models += 1
+                similar_models.append(user_sub["submission_id"])
+                if num_similar_models >= max_similar_models:
+                    logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
+                    return False
+
+    return True
 
 
 def submission_originality(submission_data, db_manager, filemanager):
@@ -205,8 +219,8 @@ def submission_originality(submission_data, db_manager, filemanager):
         logging.getLogger().info("Couldn't find {} {}".format(submission_data['user'], submission_data['submission_id']))
         return
 
-    is_exact_dupe_thresh = 1.0e-4
-    is_similar_thresh = 1.0e-3
+    is_exact_dupe_thresh = 0.005
+    is_similar_thresh = 0.03
     max_similar_models = 1
 
     is_original = is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models)
