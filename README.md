@@ -24,25 +24,26 @@ There is a separate thread that consumes from the concordance\_queue and calcula
 Originality
 -----------
 
-There is a separate thread that consumes from the originality\_queue and calculates the originality for a submission request. For the originality score we have to pull all previous submissions for the current competition round and calculate the Two-Sample Kolmogorov-Smirnov score between the submission and all other previous submissions.
+There is a separate thread that consumes from the originality\_queue and calculates the originality for a submission request. For the originality score we have to pull all previous submissions for the current competition round and calculate the normalized residual error scores between the submission and all other previous submissions data sets which include `validation`, `test`, `live`.
 
 If one of the scores falls under a specific threshold it is deemed to be identical to a previous submission is not considered original. Else if it falls under another threshold the submission is considered to be 'similar' and is counted against the submission. After we have compared the submission against all previous ones we check the count of how many submissions the current submission was similar to. If that is greater than a max limit then the model is considered to not be original.
 
 It follows this pseudo-code:
 
     var curr_submission, similar_count = 0, max_similar = 1
+    var data_types = ['validation', 'test', 'live']
+    for other_submission in get_previous_submissions(curr_submission['date_created']):
+        for type in data_types:
+            var score = norm_residual_error(curr_submission[type], other_submission[type])
+            if score < equal_threshold:
+                not_original
+            else if score < similar_threshold:
+                similar_count += 1
 
-    for submission in get_previous_submissions(curr_submission['date_created']):
-        var ks_score = two_sample_ks(curr_submission, sub)
-        if ks_score < equal_threshold:
+        if similar_count >= max_similar:
             not_original
-        else if ks_score < similar_threshold:
-            similar_count += 1
 
-    if similar_count >= max_similar:
-        not_original
-    else:
-        original
+    return original
 
 Once we have determined if a submission is original or not we then update our submission in MongoDB with the originality result.
 
