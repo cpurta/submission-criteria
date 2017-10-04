@@ -104,7 +104,7 @@ def originality_score(data1, data2):
     if n1 != n2:
         raise ValueError("`data1` and `data2` must have the same length")
 
-    return (1.0 / n1) * (np.sum(np.absolute(data1 - data2)) / np.sum(max(np.sum(data1), np.sum(data2)))) * 10**math.floor(math.log10(n1))
+    return (1.0 / n1) * (np.sum(np.absolute(data1 - data2)) / max(np.sum(data1), np.sum(data2))) * 10**math.floor(math.log10(n1))
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
