@@ -34,8 +34,7 @@ It follows this pseudo-code:
     var data_types = ['validation', 'test', 'live']
     for other_submission in get_previous_submissions(curr_submission['date_created']):
         for type in data_types:
-            var entropy_score, mean_cdf_diff = originality_scores(curr_submission[type], other_submission[type])
-            score = max(entropy_score, mean_cdf_diff)
+            var score = entropy(curr_submission[type], other_submission[type])
             if score < equal_threshold:
                 not_original
             else if score < similar_threshold:
