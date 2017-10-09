@@ -24,7 +24,7 @@ There is a separate thread that consumes from the concordance\_queue and calcula
 Originality
 -----------
 
-There is a separate thread that consumes from the originality_queue and calculates the originality for a submission request. For the originality score we have to pull all previous submissions for the current competition round and calculate the entropy and average difference of the continuous density function between the submission and all other previous submissions data sets which include `validation`, `test`, `live`.
+There is a separate thread that consumes from the originality_queue and calculates the originality for a submission request. For the originality score we have to pull all previous submissions for the current competition round and calculate the pearson correlation coefficient and the spearman correlation coefficient between the submission and all other previous submissions data sets which include `validation`, `test`, `live`.
 
 If one of the scores falls under a specific threshold it is deemed to be identical to a previous submission is not considered original. Else if it falls under another threshold the submission is considered to be 'similar' and is counted against the submission. After we have compared the submission against all previous ones we check the count of how many submissions the current submission was similar to. If that is greater than a max limit then the model is considered to not be original.
 
@@ -34,14 +34,12 @@ It follows this pseudo-code:
     var data_types = ['validation', 'test', 'live']
     for other_submission in get_previous_submissions(curr_submission['date_created']):
         for type in data_types:
-            var score = entropy(curr_submission[type], other_submission[type])
-            if score < equal_threshold:
+            var pearson_score = pearsonr(curr_submission[type], other_submission[type])
+            var spearman_score = spearmanr(curr_submission[type], other_submission[type])
+            if pearson_score >= .95:
                 not_original
-            else if score < similar_threshold:
-                similar_count += 1
-
-        if similar_count >= max_similar:
-            not_original
+            if spearman_score >= .95:
+                not_original
 
     return original
 

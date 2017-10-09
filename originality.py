@@ -8,7 +8,8 @@ from threading import Lock
 
 # Third Party
 from scipy.stats import entropy
-from scipy.stats.stats import pearsonr
+from scipy.stats.stats import pearsonr, spearmanr
+from scipy.spatial.distance import canberra
 import numpy as np
 import pandas as pd
 from bson.objectid import ObjectId
@@ -75,21 +76,18 @@ def original(submission1, submission2, threshold=0.05):
 
 def originality_score(data1, data2):
     """
-    Computes the KL-Divergence between a user submission data and another submission
-
-    Warning: data1, data2 are assumed sorted in ascending order.
+    Computes the mean canberra distance between a user submission data and another submission
 
     Parameters
     ----------
     data1, data2 : ndarray
         Two arrays of sample observations assumed to be drawn from a
-        continuous distribution. Arrays must be of the same size. data1 is
-        assumed sorted in ascending order.
+        continuous distribution. Arrays must be of the same size.
 
     Returns
     -------
     statistic : float
-        normalized residual error
+        mean canbera distance
 
     Raises:
     -------
@@ -97,21 +95,12 @@ def originality_score(data1, data2):
     """
 
     n1 = data1.shape[0]
-    n2 = data2.shape[0]
+    n2 = data1.shape[0]
+
     if n1 != n2:
-        raise ValueError("`data1` and `data2` must have the same length")
+        raise ValueError("data1 and data2 must be the same shape")
 
-    # the following commented out line is slower than the two after it
-    # cdf1 = np.searchsorted(data1, data_all, side='right') / (1.0*n1)
-    cdf1 = np.searchsorted(data1, data2, side='right')
-    cdf1 = np.concatenate((np.arange(n1) + 1, cdf1)) / (1.0*n1)
-
-    # the following commented out line is slower than the two after it
-    # cdf2 = np.searchsorted(data2, data_all, side='right') / (1.0*n2)
-    cdf2 = np.searchsorted(data2, data1, side='right')
-    cdf2 = np.concatenate((cdf2, np.arange(n1) + 1)) / (1.0*n2)
-
-    return entropy(cdf1, cdf2)
+    return 1.0/n1 * canberra(data1, data2)
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
@@ -167,18 +156,20 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
             submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
             other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
 
-            sorted_submission = np.sort(submission_type)
-            sorted_other_submission = np.sort(other_submission_type)
-
-            score = originality_score(sorted_submission, sorted_other_submission)
+            score = originality_score(submission_type, other_submission_type)
 
             is_not_a_constant = np.std(submission_type) > 0
 
             if is_not_a_constant and np.std(other_submission_type) > 0 :
-                correlation = pearsonr(submission_type, other_submission_type)[0]
+                pearson_correlation = pearsonr(submission_type, other_submission_type)[0]
+                spearman_correlation = spearmanr(submission_type, other_submission_type)[0]
 
-                if np.abs(correlation) > 0.95:
-                    logging.getLogger().info("Found a highly correlated submission {} with score {}".format(user_sub["submission_id"], correlation))
+                if np.abs(pearson_correlation) > 0.95:
+                    logging.getLogger().info("Found a highly correlated (pearsonr) submission {} with score {}".format(user_sub["submission_id"], correlation))
+                    return False
+
+                if np.abs(spearman_correlation) > 0.95:
+                    logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], correlation))
                     return False
 
             if score < is_exact_dupe_thresh:
