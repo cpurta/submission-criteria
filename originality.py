@@ -100,7 +100,7 @@ def originality_score(data1, data2):
     if n1 != n2:
         raise ValueError("data1 and data2 must be the same shape")
 
-    return 1.0/n1 * canberra(data1, data2)
+    return np.mean((data1 - data2)**2)
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
