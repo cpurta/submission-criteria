@@ -156,11 +156,11 @@ def submission_concordance(submission, db_manager, filemanager):
     sub_val, sub_test = get_submission_split(submission_id, competition_id, validation_ids, test_ids, db_manager, file_manager)
 
     try:
-        concordance = has_concordance(validation.target.values, sub_val.probability.values, test.target.value, sub_test.probability.values)
+        concordance = has_concordance(validation.target.values, sub_val.probability.values, test.target.values, sub_test.probability.values)
     except IndexError, ValueError:
         # If we had an indexing error, that is because the round restart, and we need to try getting the new competition variables.
          get_competition_split.cache_clear()
          validation, test = get_competition_split(competition_id, db_manager, filemanager)
-         concordance = has_concordance(validation.target.values, sub_val.probability.values, test.target.value, sub_test.probability.values)
+         concordance = has_concordance(validation.target.values, sub_val.probability.values, test.target.values, sub_test.probability.values)
 
     db_manager.write_concordance(submsission_id, competition_id, concordance)
