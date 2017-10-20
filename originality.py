@@ -16,7 +16,7 @@ from bson.objectid import ObjectId
 
 lock = Lock()
 
-@functools.lru_cache(maxsize=512)
+@functools.lru_cache(maxsize=2048)
 def get_submission(db_manager, filemanager, submission_id):
     """Gets the submission file from S3
 
@@ -34,7 +34,8 @@ def get_submission(db_manager, filemanager, submission_id):
     Returns:
     --------
     submission : ndarray
-        Array of the submission probabilities sorted by ID
+        2d array of the submission probabilities. First column is sorted by ID
+        and second column is sorted by probability.
     """
     if not submission_id:
         return None
@@ -53,6 +54,7 @@ def get_submission(db_manager, filemanager, submission_id):
         return None
 
     df = pd.read_csv(local_file)
+
     df.sort_values("id", inplace=True)
     return df
 
@@ -171,6 +173,7 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                 if np.abs(spearman_correlation) > 0.95:
                     logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], correlation))
                     return False
+
 
             if score < is_exact_dupe_thresh:
                 logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
