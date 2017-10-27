@@ -149,16 +149,20 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
 
     date_created = db_manager.get_date_created(submission_data['submission_id'])
 
-    for user_sub in db_manager.get_everyone_elses_recent_submssions(submission_data['competition_id'], submission_data['user'], date_created):
+    get_others = db_manager.get_everyone_elses_recent_submssions
+
+    # first test correlations
+    for user_sub in get_others(submission_data['competition_id'],
+                               submission_data['user'], date_created):
+
         with lock:
-            other_submission = get_submission(db_manager, filemanager, user_sub["submission_id"])
+            other_submission = get_submission(db_manager, filemanager,
+                                              user_sub["submission_id"])
         if other_submission is None:
             continue
         for data_type in tournament_data_types:
             submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
             other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
-
-            score = originality_score(submission_type, other_submission_type)
 
             is_not_a_constant = np.std(submission_type) > 0
 
@@ -174,6 +178,8 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                     logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], correlation))
                     return False
 
+            # run the originality test if the correlation tests pass
+            score = originality_score(submission_type, other_submission_type)
 
             if score < is_exact_dupe_thresh:
                 logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
@@ -185,6 +191,7 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                 if num_similar_models >= max_similar_models:
                     logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
                     return False
+
 
     return True
 
