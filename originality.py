@@ -178,19 +178,28 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                     logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], correlation))
                     return False
 
-            # run the originality test if the correlation tests pass
-            score = originality_score(submission_type, other_submission_type)
 
-            if score < is_exact_dupe_thresh:
-                logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
+    for user_sub in get_others(submission_data['competition_id'],
+                               submission_data['user'], date_created):
+
+        with lock:
+            other_submission = get_submission(db_manager, filemanager,
+                                              user_sub["submission_id"])
+        if other_submission is None:
+            continue
+        # run the originality test if the correlation tests pass
+        score = originality_score(submission_type, other_submission_type)
+
+        if score < is_exact_dupe_thresh:
+            logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
+            return False
+
+        if score <= is_similar_thresh:
+            num_similar_models += 1
+            similar_models.append(user_sub["submission_id"])
+            if num_similar_models >= max_similar_models:
+                logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
                 return False
-
-            if score <= is_similar_thresh:
-                num_similar_models += 1
-                similar_models.append(user_sub["submission_id"])
-                if num_similar_models >= max_similar_models:
-                    logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
-                    return False
 
 
     return True
