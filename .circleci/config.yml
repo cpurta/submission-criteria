@@ -1,0 +1,68 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/repo
+    docker:
+      - image: circleci/python:3.5.3
+      - image: circleci/mysql:5.6
+      - image: circleci/postgres:9.6
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-python-dependencies-{{ checksum "~/repo/setup.py" }}
+            - v1-python-dependencies
+      - run: 
+          name: Install Python Dependencies
+          command: |
+            python3 -m venv venv
+            . venv/bin/activate
+            cd ~/repo && pip install -e . | tee
+      - save_cache:
+          key: v1-python-dependencies-{{ checksum "~/repo/setup.py" }}
+          paths:
+            - ./venv
+      - save_cache:
+          key: v1-python-dependencies
+          paths:
+            - ./venv
+      - run:
+          name: Lint Python Packages
+          command: |
+            . venv/bin/activate
+            flake8 --config=./.flake8 ./
+            find . -iname "*.py" ! -name "setup.py" ! -name "__init__.py" ! -path "./venv/*" | xargs pylint --rcfile=./.pylintrc
+      - run:
+          name: Run Benchmarks
+          command: |
+            . venv/bin/activate
+            ./tests/benchmark_originality.py
+            ./tests/test_server_unittests.py
+  deploy:
+    docker:
+      - image: circleci/python:3.5.3
+    steps:
+      - checkout
+      - run:
+          name: Install AWS CLI
+          command: |
+            sudo pip install awscli --upgrade
+            sudo pip install awsebcli --upgrade
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Build and Deploy
+          command: |
+            ./deploy/push.sh prod api-ml-production
+
+workflows:
+  version: 2
+  build-deploy:
+    jobs:
+      - build
+      - deploy:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master

@@ -1,11 +1,15 @@
+#!/usr/bin/env python
+
+# System
 import time
 import numpy as np
 
-import numpy as np
+# Third Party
 import randomstate as rnd
 
+# First Party
 from benchmark_base import Benchmark
-from originality import original
+from submission_criteria.originality import original
 
 N_RUNS = 5
 N_EXAMPLES = 45000
@@ -32,7 +36,7 @@ class OriginalityBenchmark(Benchmark):
 
         return (time.time() - t_iter_start), t_per_submission
 
-    def checkpoint(self, times_per_iteration: list, times_per_submission: list=None):
+    def checkpoint(self, times_per_iteration: list, times_per_submission: list = None):
         if not self.print_checkpoint:
             return
 
@@ -59,8 +63,13 @@ class OriginalityBenchmark(Benchmark):
             times_per_submission.extend(t_subs)
             self.checkpoint(times_per_iteration, times_per_submission)
 
-if __name__ == '__main__':
+
+def main():
     benchmark = OriginalityBenchmark(n_runs=N_RUNS)
     benchmark.start('%s runs of %s examples against %s other submissions' % (
         N_RUNS, N_EXAMPLES, N_OTHER_SUBMISSIONS
     ))
+
+
+if __name__ == '__main__':
+    main()

@@ -1,14 +1,13 @@
 from setuptools import setup
 
 setup(
-    name="numerai",
+    name="submission_criteria",
     author="Numerai",
     install_requires=[
         "boto3",
         "botocore",
         "pandas==0.20.3",
         "tqdm",
-        "pymongo",
         "scipy",
         "sklearn",
         "statsmodels",
@@ -17,5 +16,10 @@ setup(
         "numpy",
         "pqueue",
         "randomstate",
+        "psycopg2",
+        "sqlalchemy",
+        "mysqlclient",
+        "pylint",
+        "flake8"
     ],
 )

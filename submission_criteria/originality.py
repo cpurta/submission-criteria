@@ -8,9 +8,12 @@ from threading import Lock
 from scipy.stats.stats import pearsonr
 import numpy as np
 import pandas as pd
-from bson.objectid import ObjectId
+
+# First Party
+import submission_criteria.common as common
 
 lock = Lock()
+
 
 @functools.lru_cache(maxsize=2048)
 def get_submission(db_manager, filemanager, submission_id):
@@ -19,7 +22,7 @@ def get_submission(db_manager, filemanager, submission_id):
     Parameters:
     -----------
     db_manager: DatabaseManager
-        MongoDB data access object that has read and write functions to NoSQL DB
+        DB data access object that has read and write functions to NoSQL DB
 
     filemanager: FileManager
         S3 Bucket data access object for querying competition datasets
@@ -36,20 +39,22 @@ def get_submission(db_manager, filemanager, submission_id):
     if not submission_id:
         return None
 
-    s3_filename = db_manager.get_filename(submission_id)
+    s3_filename, _ = common.get_filename(db_manager.postgres_db, submission_id)
     try:
 
         local_files = filemanager.download([s3_filename])
         if len(local_files) != 1:
-            logging.getLogger().info("Error looking for submission {}, found files".format(submission_id, local_files))
+            logging.getLogger().info("Error looking for submission {}, found files {}".format(submission_id, local_files))
             return None
 
         local_file = local_files[0]
-    except Exception as e:
-        logging.getLogger().info("Could not get submission {}".format(submission_id))
+    except Exception:
+        logging.getLogger().info("Could not get submission {} at S3 path {}".format(submission_id, s3_filename))
         return None
 
     df = pd.read_csv(local_file)
+    assert "id" in df.columns, "No id column in submission {}".format(s3_filename)
+    assert "probability" in df.columns, "No probability column in submission {}".format(s3_filename)
 
     df.sort_values("id", inplace=True)
     df = df["probability"]
@@ -63,6 +68,7 @@ def get_submission(db_manager, filemanager, submission_id):
     a = np.hstack((a, a_sorted))
 
     return a
+
 
 def original(submission1, submission2, threshold=0.05):
     """Determines if two submissions are original
@@ -81,6 +87,7 @@ def original(submission1, submission2, threshold=0.05):
     """
     score = originality_score(submission1, submission2)
     return score > threshold
+
 
 # this function is taken from scipy (ks_2samp) and modified and so falls
 # under their BSD license
@@ -115,16 +122,17 @@ def originality_score(data1, data2):
     # the following commented out line is slower than the two after it
     # cdf1 = np.searchsorted(data1, data_all, side='right') / (1.0*n1)
     cdf1 = np.searchsorted(data1, data2, side='right')
-    cdf1 = np.concatenate((np.arange(n1) + 1, cdf1)) / (1.0*n1)
+    cdf1 = np.concatenate((np.arange(n1) + 1, cdf1)) / (1.0 * n1)
 
     # the following commented out line is slower than the two after it
     # cdf2 = np.searchsorted(data2, data_all, side='right') / (1.0*n2)
     cdf2 = np.searchsorted(data2, data1, side='right')
-    cdf2 = np.concatenate((cdf2, np.arange(n1) + 1)) / (1.0*n2)
+    cdf2 = np.concatenate((cdf2, np.arange(n1) + 1)) / (1.0 * n2)
 
     d = np.max(np.absolute(cdf1 - cdf2))
 
     return d
+
 
 def is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models):
     """Determines how similar/exact a submission is to all other submission for the competition round
@@ -140,7 +148,7 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
         is sorted by probability.
 
     db_manager : DatabaseManager
-        MongoDB data access object that has read and write functions to NoSQL DB
+        DB data access object that has read and write functions to NoSQL DB
 
     filemanager : FileManager
         S3 Bucket data access object for querying competition datasets
@@ -169,43 +177,42 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
     get_others = db_manager.get_everyone_elses_recent_submssions
 
     # first test correlations
-    for user_sub in get_others(submission_data['competition_id'],
-                               submission_data['user'], date_created):
+    for user_sub in get_others(submission_data["round_id"],
+                               submission_data["user_id"], date_created):
 
         with lock:
             other_submission = get_submission(db_manager, filemanager,
-                                              user_sub["submission_id"])
+                                              user_sub["id"])
         if other_submission is None:
             continue
 
-        if is_not_a_constant and np.std(other_submission[:, 0]) > 0 :
+        if is_not_a_constant and np.std(other_submission[:, 0]) > 0:
             correlation = pearsonr(submission[:, 0], other_submission[:, 0])[0]
             if np.abs(correlation) > 0.95:
-                msg = "Found a highly correlated submission {} with score {}"
-                msg = msg.format(user_sub["submission_id"])
-                logging.getLogger().info(msg, correlation)
+                msg = "Found a highly correlated submission {} with score {}".format(user_sub["id"], correlation)
+                logging.getLogger().info(msg)
                 is_original = False
                 break
 
     # only run KS test if correlation test passes
     if is_original:
-        for user_sub in get_others(submission_data['competition_id'],
-                                   submission_data['user'], date_created):
+        for user_sub in get_others(submission_data["round_id"],
+                                   submission_data["user_id"], date_created):
 
             with lock:
                 other_submission = get_submission(db_manager, filemanager,
-                                                  user_sub["submission_id"])
+                                                  user_sub["id"])
             if other_submission is None:
                 continue
 
             score = originality_score(submission[:, 1], other_submission[:, 1])
             if score < is_exact_dupe_thresh:
-                logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
+                logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["id"], score))
                 is_original = False
                 break
             if score <= is_similar_thresh:
                 num_similar_models += 1
-                similar_models.append(user_sub["submission_id"])
+                similar_models.append(user_sub["id"])
                 if num_similar_models >= max_similar_models:
                     logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
                     is_original = False
@@ -215,7 +222,7 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
 
 
 def submission_originality(submission_data, db_manager, filemanager):
-    """Pulls submission data from MongoDB and determines the originality score and will update the submissions originality score
+    """Pulls submission data from DB and determines the originality score and will update the submissions originality score
 
     This checks a few things
         1. If the current submission is similar to the previous submission, we give it the same originality score
@@ -228,21 +235,25 @@ def submission_originality(submission_data, db_manager, filemanager):
         Metadata about the submission pulled from the queue
 
     db_manager : DatabaseManager
-        MongoDB data access object that has read and write functions to NoSQL DB
+        DB data access object that has read and write functions to DB
 
     filemanager : FileManager
         S3 Bucket data access object for querying competition datasets
     """
-    s = db_manager.db.submissions.find_one({'_id':ObjectId(submission_data['submission_id'])})
-    submission_data['user'] = s['username']
-    submission_data['competition_id'] = s['competition_id']
-    logging.getLogger().info("Scoring {} {}".format(submission_data['user'], submission_data['submission_id']))
+    query = "SELECT round_id, user_id FROM submissions WHERE id='{}'".format(submission_data["submission_id"])
+    cursor = db_manager.postgres_db.cursor()
+    cursor.execute(query)
+    results = cursor.fetchone()
+    cursor.close()
+    submission_data["round_id"] = results[0]
+    submission_data["user_id"] = results[1]
+    logging.getLogger().info("Scoring user_id {} submission_id {}".format(submission_data["user_id"], submission_data['submission_id']))
 
     with lock:
         submission = get_submission(db_manager, filemanager, submission_data['submission_id'])
 
     if submission is None:
-        logging.getLogger().info("Couldn't find {} {}".format(submission_data['user'], submission_data['submission_id']))
+        logging.getLogger().info("Couldn't find submission {}".format(submission_data['submission_id']))
         return
 
     is_exact_dupe_thresh = 0.005
@@ -250,4 +261,4 @@ def submission_originality(submission_data, db_manager, filemanager):
     max_similar_models = 1
 
     is_original = is_almost_unique(submission_data, submission, db_manager, filemanager, is_exact_dupe_thresh, is_similar_thresh, max_similar_models)
-    db_manager.write_originality(submission_data['submission_id'], submission_data['competition_id'], is_original)
+    db_manager.write_originality(submission_data['submission_id'], is_original)
