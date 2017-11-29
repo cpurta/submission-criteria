@@ -1,31 +1,34 @@
+#!/usr/bin/env python
+
+# System
 import tempfile
 import bz2
 import os
 import time
+import random
+from multiprocessing import Pool
 
+# Third Party
 import pandas as pd
 import numpy as np
 import randomstate as rnd
-import random
 
-from multiprocessing import Pool
-
+# First Party
 from benchmark_base import Benchmark
-from concordance import get_competition_variables_from_df
-from concordance import has_concordance
-from concordance import get_sorted_split
+from submission_criteria.concordance import get_competition_variables_from_df, has_concordance, get_sorted_split
 
 N_SAMPLES = 100 * 1000
 N_RUNS = 250
 
 
 class BenchmarkConcordance(Benchmark):
-    def load_data(self):
+    @staticmethod
+    def load_data():
         data_frames = dict()
         for sample_type, sample_file in [
-            ('train', 'data/sample_training.csv.bz2'),
-            ('predict', 'data/sample_tournament.csv.bz2'),
-            ('result', 'data/sample_result.csv.bz2')
+                ('train', 'data/sample_training.csv.bz2'),
+                ('predict', 'data/sample_tournament.csv.bz2'),
+                ('result', 'data/sample_result.csv.bz2')
         ]:
             with tempfile.NamedTemporaryFile() as temp_file, \
                     open(temp_file.name, 'wb') as uncompressed_file, \
@@ -47,7 +50,8 @@ class BenchmarkConcordance(Benchmark):
         })
         return new_train, new_predict, new_result
 
-    def gen_similar_df(self, df: pd.DataFrame, data_types: list) -> pd.DataFrame:
+    @staticmethod
+    def gen_similar_df(df: pd.DataFrame, data_types: list) -> pd.DataFrame:
         sample_batch_size = 500
         new_df = pd.DataFrame(data=None, columns=df.columns)
         features = [col for col in df.columns if 'feature' in col]
@@ -56,12 +60,12 @@ class BenchmarkConcordance(Benchmark):
             sample = df.sample(sample_batch_size, replace=True)
             sample = sample[features] + rnd.normal(loc=0.0, scale=0.1, size=sample[features].shape)
             sample = sample.as_matrix()
-            new_ids = np.array([batch_nr*sample_batch_size + j for j in range(sample_batch_size)])
+            new_ids = np.array([batch_nr * sample_batch_size + j for j in range(sample_batch_size)])
 
             data_types = [random.choice(data_types) for _ in range(sample_batch_size)]
             new_batch = {
                 'id': new_ids,
-                'era': ['era%s' % random.choice([i+1 for i in range(99)]) for _ in range(sample_batch_size)],
+                'era': ['era%s' % random.choice([i + 1 for i in range(99)]) for _ in range(sample_batch_size)],
                 'data_type': data_types,
                 'target': [random.choice([0, 1]) if data_types[i] != 'live' else np.nan for i in range(sample_batch_size)]
             }
@@ -71,7 +75,8 @@ class BenchmarkConcordance(Benchmark):
             new_df = pd.concat((new_df, pd.DataFrame.from_dict(new_batch)), axis=0)
         return new_df
 
-    def check_concordance(self, submission, clusters, ids):
+    @staticmethod
+    def check_concordance(submission, clusters, ids):
         t0 = time.time()
         ids_valid, ids_test, ids_live = ids['valid'], ids['test'], ids['live']
         p1, p2, p3 = get_sorted_split(submission, ids_valid, ids_test, ids_live)
@@ -84,7 +89,7 @@ class BenchmarkConcordance(Benchmark):
         # try to use half the available cores to avoid shaky medians per run caused by cpu usage from other processes
         pool_size = os.cpu_count() or 1
         if pool_size > 1:
-            pool_size = pool_size//2
+            pool_size = pool_size // 2
 
         source_train_data, source_predict_data, source_submission = self.load_data()
         train_data, predict_data, submission_data = \
@@ -100,12 +105,16 @@ class BenchmarkConcordance(Benchmark):
         with Pool(pool_size) as pool:
             times = pool.starmap(self.check_concordance, [(submission_data, clusters, ids) for _ in range(N_RUNS)])
 
-        self.log('benchmark finished in %.2fs' % (sum(times)/1000))
+        self.log('benchmark finished in %.2fs' % (sum(times) / 1000))
         self.log('[per iteration] %s' % self.format_stats(times, unit='ms'))
 
 
-if __name__ == '__main__':
+def main():
     benchmark = BenchmarkConcordance(n_runs=N_RUNS)
     benchmark.start('benchmarking %s submissions with %s examples each' % (
         N_RUNS, N_SAMPLES
     ))
+
+
+if __name__ == '__main__':
+    main()
