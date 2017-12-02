@@ -38,6 +38,17 @@ jobs:
             . venv/bin/activate
             ./tests/benchmark_originality.py
             ./tests/test_server_unittests.py
+      - run:
+          name: Install AWS CLI
+          command: |
+            sudo pip install awscli --upgrade
+            sudo pip install awsebcli --upgrade
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Build
+          command: |
+            ./deploy/push.sh prod api-ml-production
   deploy:
     docker:
       - image: circleci/python:3.5.3
@@ -48,12 +59,11 @@ jobs:
           command: |
             sudo pip install awscli --upgrade
             sudo pip install awsebcli --upgrade
-      - setup_remote_docker:
-          docker_layer_caching: true
       - run:
-          name: Build and Deploy
+          name: Deploy
           command: |
-            ./deploy/push.sh prod api-ml-production
+            ./deploy/gen-dockerrun.sh api-ml-production
+            eb deploy --staged api-ml-production
 
 workflows:
   version: 2

@@ -22,7 +22,8 @@ s3 = boto3.resource("s3", aws_access_key_id=S3_ACCESS_KEY, aws_secret_access_key
 def get_secret(key):
     """Return a secret from S3."""
     global s3
-    bucket = "numerai-api-ml-secrets"
+    bucket = os.environ.get("S3_SECRETS_BUCKET", "numerai-api-ml-secrets")
+    print("bucket", bucket)
     obj = s3.Object(bucket, key)
     secret = obj.get()['Body'].read().decode('utf-8')
     return secret
