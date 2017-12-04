@@ -199,7 +199,7 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                 submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
                 other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
 
-                score = originality_score(submission[:, 1], other_submission[:, 1])
+                score = originality_score(submission_type[:, 1], other_submission_type[:, 1])
                 if score < is_exact_dupe_thresh:
                     logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["id"], score))
                     is_original = False
