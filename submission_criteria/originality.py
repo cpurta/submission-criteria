@@ -1,15 +1,12 @@
 # System
 """Originality Checking."""
 import logging
-import math
 import functools
 import os
 from threading import Lock
 
 # Third Party
-from scipy.stats import entropy
 from scipy.stats.stats import pearsonr, spearmanr
-from scipy.spatial.distance import canberra
 import numpy as np
 import pandas as pd
 
@@ -146,16 +143,17 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
         Whether the submission data is considered to be original or not
     """
     # Get the tournament data
-    extract_dir = filemanager.download_dataset(competition_id)
+    extract_dir = filemanager.download_dataset(submission_data['round_id'])
     tournament_data = pd.read_csv(os.path.join(extract_dir, "numerai_tournament_data.csv"))
 
     # split the tournament_data into the various types ('validation','test','live')
     tournament_data_types = [tournament_data[tournament_data.data_type == 'validation'],
-    tournament_data[tournament_data.data_type == 'test'],
-    tournament_data[tournament_data.data_type == 'live']]
+                             tournament_data[tournament_data.data_type == 'test'],
+                             tournament_data[tournament_data.data_type == 'live']]
 
     num_similar_models = 0
     similar_models = []
+    is_original = True
 
     date_created = db_manager.get_date_created(submission_data['submission_id'])
 
@@ -170,57 +168,23 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
                                               user_sub["id"])
         if other_submission is None:
             continue
-        for data_type in tournament_data_types:
-            submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
-            other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
+        is_not_a_constant = np.std(submission) > 0
 
-            is_not_a_constant = np.std(submission_type) > 0
+        if is_not_a_constant and np.std(submission) > 0:
+            pearson_correlation = pearsonr(submission, other_submission)[0]
+            spearman_correlation = spearmanr(submission, other_submission)[0]
 
-            if is_not_a_constant and np.std(other_submission_type) > 0 :
-                pearson_correlation = pearsonr(submission_type, other_submission_type)[0]
-                spearman_correlation = spearmanr(submission_type, other_submission_type)[0]
-
-                if np.abs(pearson_correlation) > 0.95:
-                    logging.getLogger().info("Found a highly correlated (pearsonr) submission {} with score {}".format(user_sub["submission_id"], correlation))
-                    return False
-
-                if np.abs(spearman_correlation) > 0.95:
-                    logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], correlation))
-                    return False
-
-
-    for user_sub in get_others(submission_data['competition_id'],
-                               submission_data['user'], date_created):
-
-        with lock:
-            other_submission = get_submission(db_manager, filemanager,
-                                              user_sub["submission_id"])
-        if other_submission is None:
-            continue
-        # run the originality test if the correlation tests pass
-        score = originality_score(submission_type, other_submission_type)
-
-        if score < is_exact_dupe_thresh:
-            logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["submission_id"], score))
-            return False
-
-        if score <= is_similar_thresh:
-            num_similar_models += 1
-            similar_models.append(user_sub["submission_id"])
-            if num_similar_models >= max_similar_models:
-                logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
-                return False
-
-
-        if is_not_a_constant and np.std(other_submission[:, 0]) > 0:
-            correlation = pearsonr(submission[:, 0], other_submission[:, 0])[0]
-            if np.abs(correlation) > 0.95:
-                msg = "Found a highly correlated submission {} with score {}".format(user_sub["id"], correlation)
-                logging.getLogger().info(msg)
+            if np.abs(pearson_correlation) > 0.95:
+                logging.getLogger().info("Found a highly correlated (pearsonr) submission {} with score {}".format(user_sub["submission_id"], pearson_correlation))
                 is_original = False
                 break
 
-    # only run KS test if correlation test passes
+            if np.abs(spearman_correlation) > 0.95:
+                logging.getLogger().info("Found a highly correlated (spearmanr) submission {} with score {}".format(user_sub["submission_id"], spearman_correlation))
+                is_original = False
+                break
+
+    # only run MSE test if correlation test passes
     if is_original:
         for user_sub in get_others(submission_data["round_id"],
                                    submission_data["user_id"], date_created):
@@ -231,18 +195,22 @@ def is_almost_unique(submission_data, submission, db_manager, filemanager, is_ex
             if other_submission is None:
                 continue
 
-            score = originality_score(submission[:, 1], other_submission[:, 1])
-            if score < is_exact_dupe_thresh:
-                logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["id"], score))
-                is_original = False
-                break
-            if score <= is_similar_thresh:
-                num_similar_models += 1
-                similar_models.append(user_sub["id"])
-                if num_similar_models >= max_similar_models:
-                    logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
+            for data_type in tournament_data_types:
+                submission_type = submission[submission.id.isin(data_type.id.values)].probability.values
+                other_submission_type = other_submission[other_submission.id.isin(data_type.id.values)].probablility.values
+
+                score = originality_score(submission[:, 1], other_submission[:, 1])
+                if score < is_exact_dupe_thresh:
+                    logging.getLogger().info("Found a duplicate submission {} with score {}".format(user_sub["id"], score))
                     is_original = False
                     break
+                if score <= is_similar_thresh:
+                    num_similar_models += 1
+                    similar_models.append(user_sub["id"])
+                    if num_similar_models >= max_similar_models:
+                        logging.getLogger().info("Found too many similar models. Similar models were {}".format(similar_models))
+                        is_original = False
+                        break
 
     return is_original
 
