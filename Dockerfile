@@ -15,6 +15,8 @@ COPY ./submission_criteria ./submission_criteria
 RUN pip install -e .
 
 ARG env=prod
+ARG secrets_bucket=numerai-api-ml-secrets
+ENV S3_SECRETS_BUCKET=$secrets_bucket
 ENV PORT=4000 REPLACE_OS_VARS=true SHELL=/bin/bash
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
